@@ -7,10 +7,11 @@ from library.config import Secrets
 
 from google.protobuf.message import Message
 
+
 def test_protobuff_types():
 
     reddit_posts = reddit_post_pb2.RedditPosts()
-    
+
     post1 = reddit_post_pb2.RedditPost(
         id="ac88aacb-b29d-44d8-8a20-e0e41d4e8122",
         type="RedditPost",
@@ -24,14 +25,14 @@ def test_protobuff_types():
             static_files=[
                 reddit_post_pb2.StaticFileEntry(
                     type=reddit_post_pb2.StaticFileType.REDDIT_VIDEO,
-                    id="240de578-f0f2-4dc8-9790-8c36d69ee3ac"
+                    id="240de578-f0f2-4dc8-9790-8c36d69ee3ac",
                 ),
                 reddit_post_pb2.StaticFileEntry(
                     type=reddit_post_pb2.StaticFileType.REDDIT_AUDIO,
-                    id="7ba7f327-b26a-43bc-bf55-773884469123"
-                )
-            ]
-        )
+                    id="7ba7f327-b26a-43bc-bf55-773884469123",
+                ),
+            ],
+        ),
     )
 
     post2 = reddit_post_pb2.RedditPost(
@@ -41,30 +42,32 @@ def test_protobuff_types():
         fields=reddit_post_pb2.RedditPost.RedditPostFields(
             subreddit="CombatFootage",
             url="https://www.reddit.com/r/CombatFootage/comments/1jc5sff/saudi_air_force_targeted_a_ballistic_missile/",
-            title=' Saudi Air Force targeted a ballistic missile being transported by the Houthis to another location in Yemen - Saada (date unknown)',
+            title=" Saudi Air Force targeted a ballistic missile being transported by the Houthis to another location in Yemen - Saada (date unknown)",
             static_downloaded_flag=True,
             screenshot_path="s3://reddit-posts/8017eb45-9c1d-49e7-9c26-f0e7617d091f/screenshot.png",
             static_files=[
                 reddit_post_pb2.StaticFileEntry(
-                    type=reddit_post_pb2.StaticFileType.REDDIT_VIDEO, 
-                    id="35c8896f-8384-4d51-be1f-ba87724a994a"
+                    type=reddit_post_pb2.StaticFileType.REDDIT_VIDEO,
+                    id="35c8896f-8384-4d51-be1f-ba87724a994a",
                 ),
                 reddit_post_pb2.StaticFileEntry(
                     type=reddit_post_pb2.StaticFileType.REDDIT_AUDIO,
-                    id="06a80210-7d15-4798-abca-58e7fef61f75"
-                )
-            ]
-        )
+                    id="06a80210-7d15-4798-abca-58e7fef61f75",
+                ),
+            ],
+        ),
     )
     reddit_posts.posts.add().CopyFrom(post1)
     reddit_posts.posts.add().CopyFrom(post2)
 
+
 @pytest.mark.skip
-def test_insert_protobuff_data_to_db(example_reddit_protobuffs: Message, test_secrets: Secrets):
+def test_insert_protobuff_data_to_db(
+    example_reddit_protobuffs: Message, test_secrets: Secrets
+):
 
     inserted_rows = insert_reddit_posts_db(
-        reddit_posts=example_reddit_protobuffs,
-        secrets=test_secrets
+        reddit_posts=example_reddit_protobuffs, secrets=test_secrets
     )
 
     assert inserted_rows == 2
@@ -74,6 +77,5 @@ def test_insert_protobuff_data_to_db(example_reddit_protobuffs: Message, test_se
         for post in example_reddit_protobuffs.posts:
             conn.execute(
                 sa.text("DELETE FROM core.source WHERE core.source.id = :id"),
-                {"id": post.id}
+                {"id": post.id},
             )
-        

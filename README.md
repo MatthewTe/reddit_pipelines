@@ -27,6 +27,6 @@ then for all of the video and audio, pictures in the reddit post:
     created_date: datetime
     storage_path: string
     fields: {
-        
+
     }
 }
