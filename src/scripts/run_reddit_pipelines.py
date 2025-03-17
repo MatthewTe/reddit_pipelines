@@ -12,9 +12,7 @@ import sys
 from library.reddit_post_extraction_methods import recursive_insert_raw_reddit_post
 from library.config import (
     get_secrets,
-    load_config_from_file,
     Secrets,
-    RedditPipelineConfig,
 )
 from library.ingest_reddit_video import ingest_all_video_data
 

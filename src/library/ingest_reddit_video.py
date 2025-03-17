@@ -2,10 +2,13 @@ from neo4j import GraphDatabase
 import neo4j
 import json
 import argparse
+import traceback
 import typing
 import pprint
+from datetime import datetime, timezone, time as dt_time
 import requests
 import io
+import sqlalchemy as sa
 import time
 import random
 import os
@@ -13,8 +16,15 @@ from minio import Minio
 from loguru import logger
 import uuid
 import xml.etree.ElementTree as ET
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
+
+from google.protobuf.message import Message
+from google.protobuf.json_format import MessageToJson, MessageToDict
+
 
 from library.config import Secrets
+from library.protobuff_types.reddit import reddit_post_pb2
+from library.protobuff_types import core_content_pb2
 
 
 class RedditVideoInfoDict(typing.TypedDict):
@@ -216,60 +226,108 @@ def parse_video_from_mpd_document(
     return parsed_result
 
 
-def extract_reddit_posts(tx, ids: list[str]):
+def get_reddit_video_posts(ids: list[str], secrets: Secrets) -> list[dict]:
+    psql_engine = sa.create_engine(secrets["psql_uri"])
 
-    if len(ids) == 0:
-        result = tx.run(
+    with psql_engine.connect() as conn, conn.begin():
+        get_all_posts = sa.text(
             """
-            MATCH (n:Reddit:Post
-                {static_downloaded: false, static_file_type: 'video'})-[:EXTRACTED]->(p:Reddit:Json)
-            RETURN n, p
+            SELECT *
+            FROM core.source
+            WHERE source.id = ANY(:ids)
+            AND type='reddit_post'
+            AND jsonb_typeof(fields->'staticFiles') = 'array'
+            AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(fields->'staticFiles') AS elem
+                WHERE elem->>'type' = 'REDDIT_VIDEO'
+                AND (
+                    NOT (elem ? 'static_downloaded_flag') -- Key does not exist
+                    OR elem->>'static_downloaded_flag' = 'false'
+                )
+                AND elem->>'id' = 'NULL'
+            );
         """
-        )
-    else:
-        result = tx.run(
+        ).bindparams(sa.bindparam("ids", type_=ARRAY(UUID)))
+
+        results = conn.execute(get_all_posts, {"ids": ids})
+
+    return results.mappings().all()
+
+
+def update_reddit_post_video_content(
+    post_id: str, video_id: str, full_video_path: str, secrets: Secrets
+) -> int:
+
+    psql_engine = sa.create_engine(secrets["psql_uri"])
+
+    with psql_engine.connect() as conn, conn.begin():
+        update_reddit_post_query = sa.text(
             """
-            MATCH (n:Reddit:Post
-                {static_downloaded: false, static_file_type: 'video'})-[:EXTRACTED]->(p:Reddit:Json)
-            WHERE n.id IN $ids
-            RETURN n, p
-        """,
-            ids=ids,
+            UPDATE core.source
+            SET fields = jsonb_set(
+                jsonb_set(
+                    fields,
+                    '{staticFiles}',
+                    (
+                        SELECT jsonb_agg(
+                            CASE
+                                WHEN elem->>'id' = 'NULL' AND elem->>'type' = 'REDDIT_VIDEO'
+                                THEN elem || jsonb_build_object('id', :video_id, 'path', :full_video_path)
+                                ELSE elem
+                            END
+                        )
+                        FROM jsonb_array_elements(fields->'staticFiles') AS elem
+                    )
+                ),
+                '{static_downloaded_flag}',
+                'true'::jsonb,
+                true
+            )
+            WHERE id = :post_id
+            """
         )
 
-    json_posts = []
-    for record in result:
-        node, json_node = record.values()[0], record.values()[1]
-        json_posts.append(
+        update_result = conn.execute(
+            update_reddit_post_query,
             {
-                "post_id": node["id"],
-                "title": node["title"],
-                "file_type": node["static_file_type"],
-                "json_staticfile_path": json_node["path"],
-            }
+                "post_id": post_id,
+                "video_id": video_id,
+                "full_video_path": full_video_path,
+            },
         )
+        return update_result.rowcount
 
-    return json_posts
+
+def upload_mpd_reddit_record(reddit_video_content: Message, secrets: Secrets) -> int:
+    psql_engine = sa.create_engine(secrets["psql_uri"])
+    with psql_engine.connect() as conn, conn.begin():
+
+        insert_video_stream_query = sa.text(
+            """
+            INSERT INTO core.content (id, source, type, created_date, storage_path, fields)
+            VALUES (:id, :source, :type, :created_date, :storage_path, :fields)
+            """
+        )
+        video_stream_content_to_insert = {
+            "id": reddit_video_content.id,
+            "source": reddit_video_content.source,
+            "type": reddit_video_content.type,
+            "created_date": datetime.fromtimestamp(
+                reddit_video_content.created_date / 1000, tz=timezone.utc
+            ),
+            "storage_path": reddit_video_content.storage_path,
+            "fields": json.dumps(MessageToDict(reddit_video_content.fields)),
+        }
+
+        result = conn.execute(insert_video_stream_query, video_stream_content_to_insert)
+        logger.info(f"Inserted {result.rowcount} posts to tables")
+        return result.rowcount
 
 
 def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
 
-    neo4j_auth_lst = secrets["neo4j_auth"].split("/")
-    neo4j_username, neo4j_pwd = neo4j_auth_lst[0], neo4j_auth_lst[1]
-    driver: neo4j.Driver = GraphDatabase.driver(
-        secrets["neo4j_read_url"], auth=(neo4j_username, neo4j_pwd)
-    )
-    with driver.session() as session:
-
-        if len(reddit_ids) == 0:
-            logger.info(
-                "No reddit Ids provided - Running video ingestion for all posts in the database"
-            )
-        else:
-            logger.info(
-                f"Reading {len(reddit_ids)} from the graph db to try to ingest videos for: {reddit_ids}"
-            )
-        all_video_posts = session.execute_read(extract_reddit_posts, ids=reddit_ids)
+    all_video_posts: list[dict] = get_reddit_video_posts(reddit_ids, secrets)
 
     MINIO_CLIENT = Minio(
         secrets["minio_url"],
@@ -284,12 +342,12 @@ def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
         time.sleep(random.randint(2, 4))
 
         logger.info(
-            f"Starting to parse reddit video from node with id {video_post['post_id']}"
+            f"Starting to parse reddit video from node with id {video_post['id']}"
         )
 
         try:
             response = MINIO_CLIENT.get_object(
-                BUCKET_NAME, video_post["json_staticfile_path"]
+                BUCKET_NAME, video_post["fields"]["jsonFilePath"]
             )
             decoded_json = json.loads(response.data)
 
@@ -314,7 +372,7 @@ def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
 
                 MINIO_CLIENT.put_object(
                     bucket_name=BUCKET_NAME,
-                    object_name=f"{video_post['post_id']}/Origin_DASH.mpd",
+                    object_name=f"{video_post['id']}/Origin_DASH.mpd",
                     data=mpd_file_byte_stream,
                     length=mpd_file_byte_stream.getbuffer().nbytes,
                     content_type="application/dash+xml",
@@ -343,7 +401,9 @@ def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
 
                     period = ET.SubElement(mpd, "Period", {"id": str(period_id)})
 
-                    video_period_filename = f"{video_post['post_id']}/{period_id}_{video_period['extension']}"
+                    video_period_filename = (
+                        f"{video_post['id']}/{period_id}_{video_period['extension']}"
+                    )
                     video_period["video_byte_stream"].seek(0)
 
                     # Static File Uploads:
@@ -387,7 +447,7 @@ def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
                         logger.info(
                             f"Extracting audio stream for video in period {period_id}"
                         )
-                        audio_period_filename = f"{video_post['post_id']}/{period_id}-{audio_period['extension']}"
+                        audio_period_filename = f"{video_post['id']}/{period_id}-{audio_period['extension']}"
                         audio_period["audio_byte_stream"].seek(0)
 
                         # Static File Uploads:
@@ -429,81 +489,51 @@ def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
 
                 MINIO_CLIENT.put_object(
                     bucket_name=BUCKET_NAME,
-                    object_name=f"{video_post['post_id']}/Graph_DASH.mpd",
+                    object_name=f"{video_post['id']}/Video_DASH.mpd",
                     data=new_mpd_file_byte_stream,
                     length=new_mpd_file_byte_stream.getbuffer().nbytes,
                     content_type="application/dash+xml",
                 )
-                logger.info(f"Uploaded {video_post['post_id']}/Graph_DASH.mpd")
+                logger.info(f"Uploaded {video_post['id']}/Video_DASH.mpd")
 
-                # Creating the Video Ingestion Node and Edge to the Graph database:
-                neo4j_node_id = str(
-                    uuid.uuid3(
-                        uuid.NAMESPACE_URL, f"{video_post['post_id']}/Origin_DASH.mpd"
+                # Create a content record:
+                video_stream_id: str = str(
+                    uuid.uuid3(uuid.NAMESPACE_URL, f"{video_post['id']}/Video_DASH.mpd")
+                )
+                video_stream_path = f"{video_post['id']}/Video_DASH.mpd"
+                # Upload an MPD content object:
+                utc_datetime = int(
+                    datetime.combine(video_post["created_date"], dt_time.min)
+                    .replace(tzinfo=timezone.utc)
+                    .timestamp()
+                    * 1000
+                )
+                video_stream_content = reddit_post_pb2.RedditVideoContent(
+                    id=video_stream_id,
+                    source=str(video_post["id"]),
+                    type=core_content_pb2.CoreContentTypes.VIDEO_DASH_STREAM,
+                    created_date=utc_datetime,
+                    storage_path=video_stream_path,
+                    fields=reddit_video,
+                )
+                assert upload_mpd_reddit_record(video_stream_content, secrets) == 1
+
+                assert (
+                    update_reddit_post_video_content(
+                        post_id=video_post["id"],
+                        video_id=video_stream_id,
+                        full_video_path=video_stream_path,
+                        secrets=secrets,
                     )
+                    == 1
                 )
-                video_node_w_connection = [
-                    {
-                        "type": "node",
-                        "query_type": "MERGE",
-                        "labels": ["Reddit", "StaticFile", "Video"],
-                        "properties": {
-                            "id": neo4j_node_id,
-                            "mpd_file": f"{video_post['post_id']}/Graph_DASH.mpd",
-                        },
-                    },
-                    {
-                        "type": "edge",
-                        "labels": ["CONTAINS"],
-                        "connection": {
-                            "from": neo4j_node_id,
-                            "to": video_post["post_id"],
-                        },
-                        "properties": {},
-                    },
-                    {
-                        "type": "edge",
-                        "labels": ["EXTRACTED_FROM"],
-                        "connection": {
-                            "from": video_post["post_id"],
-                            "to": neo4j_node_id,
-                        },
-                        "properties": {},
-                    },
-                ]
 
-                node_created_response = requests.post(
-                    f"{os.environ.get('NEO4J_URL')}/v1/api/run_query",
-                    json=video_node_w_connection,
-                )
-                node_created_response.raise_for_status()
                 logger.info(
-                    "Created the video node and the edges for the Graph Database"
+                    f"Sucessfully uploaded video stream for reddit post {video_post['id']}"
                 )
-                pprint.pprint(node_created_response.json())
-
-                update_video_node = [
-                    {
-                        "type": "node",
-                        "query_type": "MATCH",
-                        "labels": ["Reddit", "Post", "Entity"],
-                        "match_properties": {"id": video_post["post_id"]},
-                        "set_properties": {"static_downloaded": True},
-                    }
-                ]
-
-                node_updated_response = requests.post(
-                    f"{os.environ.get('NEO4J_URL')}/v1/api/run_update_query",
-                    json=update_video_node,
-                )
-                node_updated_response.raise_for_status()
-                logger.info(
-                    f"Updated the Reddit node to {video_post['post_id']}. Setting static file to True"
-                )
-                pprint.pprint(node_updated_response.json())
 
         except Exception as e:
-            logger.error(str(e.with_traceback(None)))
+            logger.error(traceback.format_exc())
 
         finally:
             response.close()

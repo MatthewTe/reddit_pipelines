@@ -1,6 +1,10 @@
 # Data structures that this pipeline ingests into the database:
 protoc --proto_path=/Users/matthewteelucksingh/Repos/psql_schema_exploration/pipelines/reddit --python_out=/Users/matthewteelucksingh/Repos/web_pipelines/reddit_pipelines/src/library /Users/matthewteelucksingh/Repos/psql_schema_exploration/pipelines/reddit/reddit_post.proto
 
+matthewteelucksingh@Matthews-MacBook-Air reddit_pipelines % protoc --proto_path=/Users/matthewteelucksingh/Repos/psql_schema_exploration/pipelines \
+       --python_out=/Users/matthewteelucksingh/Repos/web_pipelines/reddit_pipelines/src/library/protobuff_types \
+       /Users/matthewteelucksingh/Repos/psql_schema_exploration/pipelines/reddit/reddit_post.proto
+
 source {
     id: string
     type: string default=reddit

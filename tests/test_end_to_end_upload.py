@@ -1,6 +1,6 @@
 import sqlalchemy as sa
 
-from library import reddit_post_pb2
+from library.protobuff_types.reddit import reddit_post_pb2
 from library.reddit_post_extraction_methods import (
     insert_reddit_posts_db,
     get_unique_posts,

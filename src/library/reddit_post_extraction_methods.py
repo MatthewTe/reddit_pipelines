@@ -23,11 +23,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 
 from google.protobuf.message import Message
-from google.protobuf.json_format import MessageToJson
+from google.protobuf.json_format import MessageToJson, MessageToDict
 
 from library.comments_extraction_methods import recursively_build_comment_creation_lst
 from library.config import Secrets
-from library import reddit_post_pb2
+from library.protobuff_types.reddit import reddit_post_pb2
 
 
 class RedditPostDict(TypedDict):
@@ -97,6 +97,13 @@ def get_post_message_from_element(post_element) -> Message:
             user=reddit_user,
         ),
     )
+
+    if static_file_type == "video":
+        static_file_entry = reddit_post_pb2.StaticFileEntry(
+            type=reddit_post_pb2.StaticFileType.REDDIT_VIDEO, id="NULL"
+        )
+        post.fields.static_files.append(static_file_entry)
+
     return post
 
 
@@ -265,7 +272,7 @@ def insert_reddit_posts_db(reddit_post: Message, secrets: Secrets) -> int:
             "created_date": datetime.fromtimestamp(
                 reddit_post.created_date / 1000, tz=timezone.utc
             ),
-            "fields": MessageToJson(reddit_post.fields),
+            "fields": json.dumps(MessageToDict(reddit_post.fields)),
         }
 
         result = conn.execute(insert_query, posts_to_insert)
