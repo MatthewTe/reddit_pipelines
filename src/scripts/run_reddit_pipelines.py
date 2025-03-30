@@ -1,13 +1,8 @@
 from selenium import webdriver
-from selenium.webdriver.common.by import By
 
-import uuid
 from minio import Minio
-from datetime import datetime, timezone
-import pandas as pd
 import argparse
 from loguru import logger
-import sys
 
 from library.reddit_post_extraction_methods import recursive_insert_raw_reddit_post
 from library.config import (
