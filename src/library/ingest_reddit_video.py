@@ -226,6 +226,34 @@ def parse_video_from_mpd_document(
     return parsed_result
 
 
+def get_all_reddit_video_posts(secrets: Secrets) -> list[dict]:
+    psql_engine = sa.create_engine(secrets["psql_uri"])
+
+    with psql_engine.connect() as conn, conn.begin():
+        get_all_posts = sa.text(
+            """
+            SELECT *
+            FROM core.source
+            WHERE type='reddit_post'
+            AND jsonb_typeof(fields->'staticFiles') = 'array'
+            AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(fields->'staticFiles') AS elem
+                WHERE elem->>'type' = 'REDDIT_VIDEO'
+                AND (
+                    NOT (elem ? 'static_downloaded_flag') -- Key does not exist
+                    OR elem->>'static_downloaded_flag' = 'false'
+                )
+                AND elem->>'id' = 'NULL'
+            );
+        """
+        )
+
+        results = conn.execute(get_all_posts)
+
+    return results.mappings().all()
+
+
 def get_reddit_video_posts(ids: list[str], secrets: Secrets) -> list[dict]:
     psql_engine = sa.create_engine(secrets["psql_uri"])
 

@@ -25,9 +25,7 @@ class RedditPipelineConfig(TypedDict):
 
 
 def get_secrets(env_path) -> Secrets:
-
     load_dotenv(env_path)
-
     return {
         "minio_url": os.environ.get("MINIO_URL"),
         "minio_access_key": os.environ.get("MINIO_ACCESS_KEY"),

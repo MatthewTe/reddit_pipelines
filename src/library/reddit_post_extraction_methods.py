@@ -403,11 +403,11 @@ def recursive_insert_raw_reddit_post(
     )
 
     logger.info(
-        f"Found {len(reddit_posts.posts)} unique posts that are not in the reddit database"
+        f"Found {len(unique_posts_to_ingest.posts)} unique posts that are not in the reddit database"
     )
 
     # Actually inserting the post data into the database:
-    if len(reddit_posts.posts) == 0:
+    if len(unique_posts_to_ingest.posts) == 0:
         logger.info("No unique posts found from reddit page. Exiting...")
         return
 

@@ -13,8 +13,8 @@ from library.ingest_reddit_video import ingest_all_video_data
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-e",
     "--env_file",
+    "-e",
     help="The path to the environment file used to load all of the secrets",
 )
 parser.add_argument(
@@ -26,6 +26,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 reddit_url: str = args.reddit_url
+
+logger.info(f"Loading secrets from env file {args.env_file}")
 secrets: Secrets = get_secrets(args.env_file)
 
 if __name__ == "__main__":
