@@ -18,14 +18,6 @@ import uuid
 import xml.etree.ElementTree as ET
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
-from google.protobuf.message import Message
-from google.protobuf.json_format import MessageToJson, MessageToDict
-
-
-from library.config import Secrets
-from library.protobuff_types.reddit import reddit_post_pb2
-from library.protobuff_types import core_content_pb2
-
 
 class RedditVideoInfoDict(typing.TypedDict):
     bitrate_kbps: int
@@ -226,7 +218,7 @@ def parse_video_from_mpd_document(
     return parsed_result
 
 
-def get_all_reddit_video_posts(secrets: Secrets) -> list[dict]:
+def get_all_reddit_video_posts(secrets) -> list[dict]:
     psql_engine = sa.create_engine(secrets["psql_uri"])
 
     with psql_engine.connect() as conn, conn.begin():
@@ -254,7 +246,7 @@ def get_all_reddit_video_posts(secrets: Secrets) -> list[dict]:
     return results.mappings().all()
 
 
-def get_reddit_video_posts(ids: list[str], secrets: Secrets) -> list[dict]:
+def get_reddit_video_posts(ids: list[str], secrets) -> list[dict]:
     psql_engine = sa.create_engine(secrets["psql_uri"])
 
     with psql_engine.connect() as conn, conn.begin():
@@ -284,7 +276,7 @@ def get_reddit_video_posts(ids: list[str], secrets: Secrets) -> list[dict]:
 
 
 def update_reddit_post_video_content(
-    post_id: str, video_id: str, full_video_path: str, secrets: Secrets
+    post_id: str, video_id: str, full_video_path: str, secrets
 ) -> int:
 
     psql_engine = sa.create_engine(secrets["psql_uri"])
@@ -327,7 +319,7 @@ def update_reddit_post_video_content(
         return update_result.rowcount
 
 
-def upload_mpd_reddit_record(reddit_video_content: Message, secrets: Secrets) -> int:
+def upload_mpd_reddit_record(reddit_video_content, secrets) -> int:
     psql_engine = sa.create_engine(secrets["psql_uri"])
     with psql_engine.connect() as conn, conn.begin():
 
@@ -345,7 +337,7 @@ def upload_mpd_reddit_record(reddit_video_content: Message, secrets: Secrets) ->
                 reddit_video_content.created_date / 1000, tz=timezone.utc
             ),
             "storage_path": reddit_video_content.storage_path,
-            "fields": json.dumps(MessageToDict(reddit_video_content.fields)),
+            "fields": json.dumps(reddit_video_content.fields),
         }
 
         result = conn.execute(insert_video_stream_query, video_stream_content_to_insert)
@@ -353,7 +345,7 @@ def upload_mpd_reddit_record(reddit_video_content: Message, secrets: Secrets) ->
         return result.rowcount
 
 
-def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
+def ingest_all_video_data(secrets, reddit_ids: list[str] = []):
 
     all_video_posts: list[dict] = get_reddit_video_posts(reddit_ids, secrets)
 
@@ -536,10 +528,10 @@ def ingest_all_video_data(secrets: Secrets, reddit_ids: list[str] = []):
                     .timestamp()
                     * 1000
                 )
-                video_stream_content = reddit_post_pb2.RedditVideoContent(
+                video_stream_content = dict(
                     id=video_stream_id,
                     source=str(video_post["id"]),
-                    type=core_content_pb2.CoreContentTypes.VIDEO_DASH_STREAM,
+                    type="VIDEO_DASH_STREAM",
                     created_date=utc_datetime,
                     storage_path=video_stream_path,
                     fields=reddit_video,

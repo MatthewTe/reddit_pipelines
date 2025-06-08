@@ -34,3 +34,12 @@ then for all of the video and audio, pictures in the reddit post:
 
     }
 }
+
+## Simplify for deployment!
+- Remove protobuffs - not really necessary
+- refactor all IO operations via dependency injection
+- Write a "simpler" IO interface for Sqlite and file
+
+
+
+python run_post_ingestion_sqlite_localfile.py --env_file=/Users/matthewteelucksingh/Repos/web_pipelines/reddit_pipelines/env_files/local.env --reddit_url=https://old.reddit.com/r/UkraineWarVideoReport/ --sqlite_db_path=/Users/matthewteelucksingh/Repos/web_pipelines/reddit_pipelines/data/demo_run.sqlite --file_directory=/Users/matthewteelucksingh/Repos/web_pipelines/reddit_pipelines/data/example_static_content
