@@ -1,7 +1,15 @@
 from loguru import logger
 import pandas as pd
 from datetime import datetime
+import json
+import io
 import uuid
+
+from library.reddit_post_extraction_methods import (
+    RedditCommentAttachmentDict,
+    RedditCommentDict,
+)
+from library.types import RedditPostDict
 
 
 def extract_author_from_json(comment_data: dict) -> dict:
@@ -165,3 +173,27 @@ def recursively_build_comment_creation_lst(
             "Recursive post extraction has hit the 'more' component. Exiting recursive extraction."
         )
         return
+
+
+def get_comments_from_json(
+    post: RedditPostDict, json_bytes_stream: io.BytesIO
+) -> RedditCommentAttachmentDict:
+    try:
+        json_bytes_stream.seek(0)
+
+        row_reddit_json = json.loads(json_bytes_stream.read())
+        comment_content = row_reddit_json[1]["data"]["children"]
+
+        post_comment_dicts: list[RedditCommentDict] = []
+        for comment_json in comment_content:
+            recursively_build_comment_creation_lst(
+                output_lst=post_comment_dicts, post=post, comment_json_obj=comment_json
+            )
+
+        return post_comment_dicts
+
+    except Exception as e:
+        logger.error(
+            f"Unable to recusrively extract all comments from comments json: {str(e.with_traceback(None))}"
+        )
+        return None
