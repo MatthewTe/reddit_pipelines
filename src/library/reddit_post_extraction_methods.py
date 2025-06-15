@@ -12,7 +12,6 @@ from loguru import logger
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
-from library.comments_extraction_methods import recursively_build_comment_creation_lst
 from library.io_interfaces.db_io import DatabaseInterface
 from library.io_interfaces.filestore_io import FileInterface
 from library.types import RedditPostDict, RedditUserDict

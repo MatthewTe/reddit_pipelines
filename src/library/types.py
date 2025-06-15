@@ -25,3 +25,13 @@ class RedditPostDict(TypedDict):
     type: str
     created_date: float
     fields: RedditPostFields
+
+
+# core.labels  post_id | label_id | extent_geometry | label_comment
+
+
+class PostSpatialLabelDict(TypedDict):
+    post_id: str
+    label_id: str
+    geometry: str
+    comment: str

@@ -2,8 +2,16 @@ import argparse
 import os
 import minio
 import dotenv
+import sys
+
+import pysqlite3
+
+sys.modules["sqlite3"] = pysqlite3
 
 import sqlalchemy as sa
+from geoalchemy2 import load_spatialite
+from sqlalchemy.event import listen
+
 import sqlalchemy.engine.url as url
 from loguru import logger
 from selenium import webdriver
@@ -44,10 +52,11 @@ if __name__ == "__main__":
 
     DB_URI = url.make_url(f"sqlite:////{args.sqlite_db_path}")
     SQLITE_ENGINE: sa.engine.Engine = sa.create_engine(DB_URI)
+    listen(SQLITE_ENGINE, "connect", load_spatialite)
 
     with SQLITE_ENGINE.connect() as conn, conn.begin():
 
-        table_create_query = sa.text(
+        source_table_create_query = sa.text(
             """
             CREATE TABLE IF NOT EXISTS source (
                 id TEXT PRIMARY KEY,
@@ -58,7 +67,25 @@ if __name__ == "__main__":
             """
         )
 
-        conn.execute(table_create_query)
+        labels_table_create_query = sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS labels (
+                label_id TEXT PRIMARY KEY,
+                post_id TEXT NOT NULL,
+                comment TEXT
+            );
+            """
+        )
+
+        create_geometry_col_query = sa.text(
+            """
+            SELECT AddGeometryColumn('labels', 'geometry', 4326, 'POLYGON', 'XY');
+            """
+        )
+
+        conn.execute(source_table_create_query)
+        conn.execute(labels_table_create_query)
+        conn.execute(create_geometry_col_query)
 
     sqlite_localfiles_config = {
         "reddit_username": os.environ.get("REDDIT_USERNAME"),
