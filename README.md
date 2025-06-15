@@ -111,4 +111,4 @@ if __name__ == "__main__":
 #### TODO: Describe the Interfaces and how to extend them
 
 ## Classification Server + GUI
-[Example Label GUI](./docs/img/gui_screenshot_example.png)
+![Example Label GUI](./docs/img/gui_screenshot_example.png)
